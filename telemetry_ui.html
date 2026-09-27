@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Racing Telemetry Overlay</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#111317; --panel:#1b1e24; --panel2:#23272f; --line:#2e333c; --text:#e8eaee; --muted:#9aa1ad;
+          --accent:#ffc400; --purple:#b25cff; --green:#3cdc78; --red:#ff4848; --yellow:#ffdc46; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:10px 18px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0; letter-spacing:.3px; }
+  header h1 span { color:var(--accent); }
+  #status { color:var(--muted); font-size:13px; flex:1; }
+  #status.err { color:var(--red); }
+  main { display:grid; grid-template-columns: 430px 1fr; gap:14px; padding:14px 18px; max-width:1900px; }
+  @media (max-width:1100px){ main { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:14px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin:0 0 10px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input[type=text], input[type=number], select { width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--text);
+     border-radius:8px; padding:7px 9px; font:inherit; }
+  input[type=text]:focus, input[type=number]:focus, select:focus { outline:1px solid var(--accent); }
+  .row { display:flex; gap:8px; align-items:end; }
+  .row > * { flex:1; }
+  .row > .s { flex:0 0 auto; }
+  button { background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:7px 12px; font:inherit; cursor:pointer; white-space:nowrap; }
+  button:hover { border-color:#4a505b; }
+  button.primary { background:var(--accent); color:#111; border-color:var(--accent); font-weight:600; }
+  button.small { padding:4px 8px; font-size:12px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .tabs { display:flex; gap:4px; margin-bottom:12px; border-bottom:1px solid var(--line); }
+  .tabs button { border:none; background:none; color:var(--muted); border-radius:8px 8px 0 0; padding:8px 12px; }
+  .tabs button.on { color:var(--text); background:var(--panel2); }
+  .tab { display:none; } .tab.on { display:block; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 12px; }
+  .checks { display:grid; grid-template-columns:repeat(3,1fr); gap:4px 10px; margin-top:6px; }
+  .checks label { display:flex; align-items:center; gap:6px; margin:0; color:var(--text); font-size:13px; }
+  /* preview */
+  #preview { width:100%; aspect-ratio:16/9; background:#000; border-radius:10px; display:block; object-fit:contain; }
+  #pvwrap { position:relative; }
+  #pvbusy { position:absolute; top:10px; right:12px; background:rgba(0,0,0,.6); padding:3px 8px; border-radius:6px; font-size:12px; display:none; }
+  #timeline { margin-top:10px; }
+  #slider { width:100%; accent-color:var(--accent); }
+  #ticks { position:relative; height:14px; }
+  #ticks span { position:absolute; top:0; font-size:10px; color:var(--muted); transform:translateX(-50%); border-left:1px solid var(--line); padding-left:3px; }
+  .time { font:600 22px/1 ui-monospace,Consolas,monospace; }
+  .time small { font:12px system-ui; color:var(--muted); margin-left:8px; }
+  .nudge button { min-width:44px; }
+  .marks { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  .mark { background:var(--panel2); border-radius:8px; padding:8px 10px; }
+  .mark .v { font:600 14px ui-monospace,Consolas,monospace; color:var(--accent); min-height:18px; }
+  .mark .t { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+  .mark .b { display:flex; gap:6px; margin-top:6px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:4px 6px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  td:first-child, th:first-child, td.l, th.l { text-align:left; }
+  tr.lap { cursor:pointer; } tr.lap:hover td { background:var(--panel2); }
+  tr.best td { color:var(--purple); font-weight:600; }
+  tr.long td { color:var(--muted); }
+  #lapwrap { max-height:340px; overflow:auto; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:10px; background:var(--panel2); font-size:12px; margin:2px 4px 2px 0; }
+  .drivers .d { display:flex; gap:6px; align-items:center; margin:4px 0; }
+  .drivers input { flex:1; }
+  progress { width:100%; height:14px; accent-color:var(--accent); }
+  #rline { font:12px ui-monospace,Consolas,monospace; color:var(--muted); white-space:pre-wrap; }
+  #rlog { font:11px ui-monospace,Consolas,monospace; color:var(--muted); max-height:180px; overflow:auto; background:#0c0d10; padding:8px; border-radius:8px; white-space:pre-wrap; }
+  #cmd { font:11px ui-monospace,Consolas,monospace; color:var(--muted); word-break:break-all; background:#0c0d10; padding:8px; border-radius:8px; }
+  .hint { color:var(--muted); font-size:12px; margin:4px 0 0; }
+  .groups label { display:flex; gap:8px; align-items:center; color:var(--text); margin:4px 0; }
+  .sp { display:flex; gap:6px; align-items:center; margin:4px 0; } .sp span { flex:1; font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Racing <span>Telemetry Overlay</span></h1>
+  <div id="status">Open a folder to begin.</div>
+</header>
+<main>
+<div id="left">
+  <div class="tabs">
+    <button class="on" data-tab="session">Session</button>
+    <button data-tab="laps">Laps</button>
+    <button data-tab="look">Look</button>
+    <button data-tab="render">Render</button>
+  </div>
+
+  <!-- SESSION -->
+  <div class="tab on" id="tab-session">
+    <div class="card">
+      <h2>Video folder</h2>
+      <div class="row">
+        <div><input type="text" id="folder" placeholder="J:\gopro\mid ohio champ race sun"></div>
+        <button class="s" id="browse">Browse…</button>
+        <button class="s primary" id="open">Open</button>
+      </div>
+      <div id="groups" class="groups"></div>
+      <div class="row" style="margin-top:8px"><button class="primary" id="load" disabled>Load session</button></div>
+      <p class="hint">Chapters of one recording (GX01…, GX02…) are grouped. Telemetry is read once and cached next to the videos.</p>
+    </div>
+    <div class="card" id="sessinfo" style="display:none">
+      <h2>Session</h2>
+      <div id="chapters"></div>
+    </div>
+  </div>
+
+  <!-- LAPS -->
+  <div class="tab" id="tab-laps">
+    <div class="card">
+      <h2>Timing line and flags</h2>
+      <p class="hint">Scrub the video to the moment, then click a button. Start/finish must be a moment the car is <b>crossing the line at speed</b>.</p>
+      <div class="marks">
+        <div class="mark"><div class="t">Start / finish</div><div class="v" id="v-sf">auto (top-speed point)</div>
+          <div class="b"><button class="small primary" data-set="sf_time">Set here</button><button class="small" data-clear="sf_time">Clear</button></div></div>
+        <div class="mark"><div class="t">Green flag</div><div class="v" id="v-green">—</div>
+          <div class="b"><button class="small primary" data-set="green">Set here</button><button class="small" data-clear="green">Clear</button></div></div>
+        <div class="mark"><div class="t">Checkered</div><div class="v" id="v-checkered">—</div>
+          <div class="b"><button class="small primary" data-set="checkered">Set here</button><button class="small" data-clear="checkered">Clear</button></div></div>
+        <div class="mark"><div class="t">Sectors per lap</div>
+          <select id="sectors"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+      </div>
+      <div class="grid2">
+        <div><label>Timing line width (m)</label><input type="number" id="sf_width" value="30"></div>
+        <div><label>Ignore crossings closer than (s)</label><input type="number" id="min_lap" value="20"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Drivers</h2>
+      <div class="drivers" id="drivers"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="small" id="adddriver">+ Add driver</button>
+        <button class="small" id="driverhere">Driver change at current time</button>
+      </div>
+      <p class="hint">First driver needs no time. Later ones take over at <code>lap38</code> or a time like <code>3@12:40</code>. Use the lap table to find pit stops (marked long).</p>
+    </div>
+    <div class="card">
+      <h2>Lap table</h2>
+      <div id="lapsum" class="hint"></div>
+      <div id="lapwrap"><table id="laptable"></table></div>
+    </div>
+  </div>
+
+  <!-- LOOK -->
+  <div class="tab" id="tab-look">
+    <div class="card">
+      <h2>Header</h2>
+      <div class="grid3">
+        <div style="grid-column:span 2"><label>Team</label><input type="text" id="team" placeholder="Bill's Discount Garage"></div>
+        <div><label>Car number</label><input type="text" id="number" placeholder="88"></div>
+      </div>
+      <label>Car</label><input type="text" id="car" placeholder="2007 BMW 328i">
+    </div>
+    <div class="card">
+      <h2>Sponsors</h2>
+      <div class="row"><div><label>Slots</label><input type="number" id="sponsor_slots" min="0" max="6" value="0"></div>
+        <button class="s" id="addsponsor">Add logo…</button></div>
+      <div id="sponsors"></div>
+      <p class="hint">Empty slots show a dashed placeholder. Transparent PNGs look best.</p>
+    </div>
+    <div class="card">
+      <h2>Elements</h2>
+      <div class="checks" id="elements"></div>
+    </div>
+    <div class="card">
+      <h2>Gauges</h2>
+      <div class="grid3">
+        <div><label>Overall size</label><input type="number" id="scale" step="0.05" value="1.0"></div>
+        <div><label>G-meter max (g)</label><input type="number" id="g_max" step="0.1" value="1.5"></div>
+        <div><label>Brake lamp (g)</label><input type="number" id="brake_g" step="0.05" value="0.5"></div>
+        <div><label>G peaks</label><select id="g_peaks"><option value="lap">per lap</option><option value="session">session</option><option value="off">off</option></select></div>
+        <div><label>Speedo max</label><input type="text" id="speed_max" placeholder="auto"></div>
+        <div><label>Units</label><select id="kmh"><option value="0">MPH</option><option value="1">km/h</option></select></div>
+        <div><label>Lap history rows</label><input type="number" id="lap_list" value="6"></div>
+        <div><label>Clock time zone (h)</label><input type="text" id="tz" placeholder="PC's zone"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RENDER -->
+  <div class="tab" id="tab-render">
+    <div class="card">
+      <h2>Output</h2>
+      <div class="grid3">
+        <div><label>Height</label><select id="height"><option>720</option><option selected>1080</option><option>1440</option><option>2160</option></select></div>
+        <div><label>Start</label><input type="text" id="start" placeholder="from the beginning"></div>
+        <div><label>Duration</label><input type="text" id="duration" placeholder="to the end"></div>
+      </div>
+      <div class="row" style="margin-top:6px;flex-wrap:wrap">
+        <button class="small" id="startgreen">Start 20 s before green</button>
+        <button class="small" id="starthere">Start at current time</button>
+        <button class="small" id="test60">60 s test from here</button>
+      </div>
+      <label>Output file</label><input type="text" id="output" placeholder="GX010048_overlay.mp4 (saved in the video folder)">
+    </div>
+    <div class="card">
+      <h2>Speed</h2>
+      <div class="grid3">
+        <div><label>NVIDIA GPU</label><select id="nvidia"><option value="1">on</option><option value="0">off</option></select></div>
+        <div><label>GPU filters</label><select id="gpu_filters"><option>auto</option><option>on</option><option>off</option></select></div>
+        <div><label>Workers</label><input type="text" id="jobs" placeholder="auto"></div>
+        <div><label>Overlay fps</label><select id="overlay_fps"><option>30</option><option>15</option><option>10</option></select></div>
+        <div><label>Quality (cq)</label><input type="number" id="cq" value="19"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row"><button class="primary" id="render">Start render</button><button class="s" id="cancel" disabled>Cancel</button></div>
+      <div style="margin-top:10px"><progress id="prog" value="0" max="100"></progress></div>
+      <div id="rline"></div>
+      <div id="rlog" style="margin-top:8px"></div>
+      <label>Equivalent command</label><div id="cmd"></div>
+    </div>
+  </div>
+</div>
+
+<div id="right">
+  <div class="card">
+    <div id="pvwrap"><img id="preview" alt=""><div id="pvbusy">loading frame…</div></div>
+    <div id="timeline">
+      <input type="range" id="slider" min="0" max="1000" step="0.1" value="0">
+      <div id="ticks"></div>
+      <div class="row" style="align-items:center;margin-top:6px">
+        <div class="time"><span id="tcur">0:00.0</span><small id="tchap"></small></div>
+        <div class="nudge s">
+          <button data-n="-60">−1m</button><button data-n="-10">−10s</button><button data-n="-1">−1s</button><button data-n="-0.1">−0.1</button>
+          <button data-n="0.1">+0.1</button><button data-n="1">+1s</button><button data-n="10">+10s</button><button data-n="60">+1m</button>
+        </div>
+        <label class="s" style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="showov" checked> overlay</label>
+      </div>
+    </div>
+  </div>
+</div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+let ST = null;           // server state
+let T = 0;               // current time on the combined timeline
+let pollTimer = null, frameTimer = null, settingsTimer = null, renderTimer = null;
+
+// ---------- utils
+const api = async (path, body) => {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)} : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+};
+const fmtClock = t => { t = Math.max(0, t); const h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : m) + ':' + s.toFixed(1).padStart(4,'0'); };
+const chapterOf = t => { if (!ST || !ST.chapters.length) return null; let c = ST.chapters[0], idx = 0;
+  ST.chapters.forEach((ch, i) => { if (t >= ch.start) { c = ch; idx = i; } }); return {idx, c, local: t - c.start}; };
+const chapTime = t => { const c = chapterOf(t); if (!c) return fmtClock(t); return `${c.idx+1}@${fmtClock(c.local)}`; };
+const setStatus = (msg, err) => { const s = $('#status'); s.textContent = msg; s.className = err ? 'err' : ''; };
+
+// ---------- tabs
+$$('.tabs button').forEach(b => b.onclick = () => {
+  $$('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $$('.tab').forEach(t => t.classList.toggle('on', t.id === 'tab-' + b.dataset.tab));
+});
+
+// ---------- session
+$('#browse').onclick = async () => { const r = await api('/api/pick_folder'); if (r.path) { $('#folder').value = r.path; $('#open').click(); } };
+$('#open').onclick = async () => {
+  try {
+    const r = await api('/api/open', {folder: $('#folder').value});
+    renderGroups(r.groups); applyState(r.state); startPolling();
+    setStatus(r.state.files.length ? 'Loading saved project…' : 'Pick the recording to load.');
+  } catch (e) { setStatus(e.message, true); }
+};
+function renderGroups(groups) {
+  const el = $('#groups'); el.innerHTML = '';
+  groups.forEach((g, i) => {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="radio" name="grp" value="${i}"> <b>${g.key}</b> · ${g.files.length} file${g.files.length>1?'s':''} · ${g.size_gb} GB <span class="hint">${g.files.join(', ')}</span>`;
+    el.appendChild(l);
+  });
+  el._groups = groups;
+  $('#load').disabled = !groups.length;
+  if (groups.length === 1) el.querySelector('input').checked = true;
+}
+$('#load').onclick = async () => {
+  const sel = $('#groups input:checked'); if (!sel) return setStatus('Choose a recording first.', true);
+  const g = $('#groups')._groups[+sel.value];
+  await api('/api/load', {files: g.files}); startPolling();
+};
+
+// ---------- state
+function startPolling() { clearInterval(pollTimer); pollTimer = setInterval(refreshState, 1500); refreshState(); }
+async function refreshState() {
+  const s = await api('/api/state'); const wasLoaded = ST && ST.loaded; applyState(s);
+  if (s.busy) setStatus(s.busy); else if (s.error) setStatus(s.error, true);
+  else if (s.loaded) { setStatus(`${s.files.length} file(s), ${fmtClock(s.total)} of video` + (s.has_accel ? ' · accelerometer' : '') + (s.has_clock ? ' · GPS clock' : ''));
+    if (!wasLoaded) { await refreshLaps(); loadFrame(); } }
+  if (s.loaded && !s.busy) clearInterval(pollTimer);
+  if (s.render.running && !renderTimer) startRenderPoll();
+}
+function applyState(s) {
+  ST = s;
+  if (s.ffmpeg === false) setStatus('FFmpeg is not installed or not on the PATH. Close this, install it (winget install Gyan.FFmpeg) and start again.', true);
+  if (s.folder) $('#folder').value = s.folder;
+  $('#slider').max = s.total || 1000;
+  // chapter ticks
+  const tk = $('#ticks'); tk.innerHTML = '';
+  s.chapters.forEach((c, i) => { if (i === 0) return; const sp = document.createElement('span'); sp.style.left = (c.start / s.total * 100) + '%'; sp.textContent = (i+1); tk.appendChild(sp); });
+  if (s.chapters.length) { $('#sessinfo').style.display = ''; $('#chapters').innerHTML = s.chapters.map((c,i)=>`<div class="pill">${i+1}: ${c.file} <span class="hint">from ${c.start_txt}</span></div>`).join(''); }
+  fillSettings(s.settings);
+  if (!$('#elements').children.length) {
+    s.elements.forEach(e => { const l = document.createElement('label'); l.innerHTML = `<input type="checkbox" data-el="${e}" checked> ${e}`; $('#elements').appendChild(l); });
+    $$('#elements input').forEach(i => i.onchange = () => { pushSettings({hide: $$('#elements input').filter(x=>!x.checked).map(x=>x.dataset.el)}, false); });
+  }
+  $$('#elements input').forEach(i => i.checked = !(s.settings.hide||[]).includes(i.dataset.el));
+  $('#cmd').textContent = s.cmd_preview || '';
+  $('#render').disabled = !s.loaded || s.render.running; $('#cancel').disabled = !s.render.running;
+}
+const FIELDS = ['sf_width','min_lap','sectors','team','car','number','sponsor_slots','scale','g_max','brake_g','g_peaks','speed_max','lap_list','tz','height','start','duration','output','gpu_filters','jobs','overlay_fps','cq'];
+let filling = false;
+function fillSettings(st) {
+  filling = true;
+  FIELDS.forEach(f => { const el = $('#'+f); if (el && document.activeElement !== el) el.value = st[f] ?? ''; });
+  $('#kmh').value = st.kmh ? '1' : '0'; $('#nvidia').value = st.nvidia ? '1' : '0';
+  $('#v-sf').textContent = st.sf_time || (st.sf_point ? st.sf_point : 'auto (top-speed point)');
+  $('#v-green').textContent = st.green || '—'; $('#v-checkered').textContent = st.checkered || '—';
+  renderDrivers(st.drivers || []); renderSponsors(st.sponsors || []);
+  filling = false;
+}
+FIELDS.forEach(f => { const el = $('#'+f); if (!el) return;
+  el.addEventListener('change', () => { if (filling) return; const v = el.type === 'number' ? +el.value : el.value;
+    const timing = ['sf_width','min_lap','sectors'].includes(f); pushSettings({[f]: v}, timing); }); });
+$('#kmh').onchange = () => pushSettings({kmh: $('#kmh').value === '1'}, false);
+$('#nvidia').onchange = () => pushSettings({nvidia: $('#nvidia').value === '1'}, false);
+
+async function pushSettings(patch, recompute) {
+  try {
+    const r = await api('/api/settings', {settings: patch, recompute});
+    applyState(r.state); if (recompute) renderLaps(r.laps); loadFrame();
+    if (r.state.error) setStatus(r.state.error, true);
+  } catch (e) { setStatus(e.message, true); }
+}
+
+// ---------- markers
+$$('[data-set]').forEach(b => b.onclick = () => pushSettings({[b.dataset.set]: chapTime(T)}, true));
+$$('[data-clear]').forEach(b => b.onclick = () => pushSettings({[b.dataset.clear]: ''}, true));
+
+// ---------- drivers
+function renderDrivers(list) {
+  const el = $('#drivers'); el.innerHTML = '';
+  list.forEach((d, i) => {
+    const row = document.createElement('div'); row.className = 'd';
+    row.innerHTML = `<input type="text" placeholder="Name" value="${d.name||''}" data-k="name"><input type="text" placeholder="${i? 'lap38 or 3@12:40' : 'from the start'}" value="${d.when||''}" data-k="when" style="max-width:150px"><button class="small" title="remove">✕</button>`;
+    row.querySelectorAll('input').forEach(inp => inp.onchange = () => { list[i][inp.dataset.k] = inp.value; pushSettings({drivers: list}, true); });
+    row.querySelector('button').onclick = () => { list.splice(i,1); pushSettings({drivers: list}, true); };
+    el.appendChild(row);
+  });
+}
+$('#adddriver').onclick = () => { const l = ST.settings.drivers || []; l.push({name:'', when: l.length ? '' : ''}); renderDrivers(l); };
+$('#driverhere').onclick = () => { const l = ST.settings.drivers || []; const name = prompt('Driver taking over at ' + chapTime(T) + ':'); if (!name) return;
+  l.push({name, when: l.length ? chapTime(T) : ''}); pushSettings({drivers: l}, true); };
+
+// ---------- sponsors
+function renderSponsors(list) {
+  const el = $('#sponsors'); el.innerHTML = '';
+  list.forEach((p, i) => { const row = document.createElement('div'); row.className = 'sp';
+    row.innerHTML = `<span title="${p}">${i+1}. ${p.split(/[\\/]/).pop()}</span><button class="small">✕</button>`;
+    row.querySelector('button').onclick = () => { list.splice(i,1); pushSettings({sponsors: list, sponsor_slots: Math.max(+ST.settings.sponsor_slots, list.length)}, false); };
+    el.appendChild(row); });
+}
+$('#addsponsor').onclick = async () => { const r = await api('/api/pick_file'); if (!r.path) return;
+  const l = ST.settings.sponsors || []; l.push(r.path); pushSettings({sponsors: l, sponsor_slots: Math.max(+ST.settings.sponsor_slots, l.length)}, false); };
+
+// ---------- laps
+async function refreshLaps() { renderLaps(await api('/api/laps')); }
+function renderLaps(L) {
+  const t = $('#laptable'), sum = $('#lapsum');
+  if (!L) { t.innerHTML = ''; sum.textContent = ''; return; }
+  if (!L.rows.length) { t.innerHTML = ''; sum.textContent = L.explain || 'No laps yet.'; return; }
+  const ns = L.rows[0].sectors.length;
+  let h = `<tr><th>Lap</th><th class="l">Driver</th><th>Time</th><th>Gap</th>${[...Array(ns)].map((_,k)=>`<th>S${k+1}</th>`).join('')}<th>Lat g</th><th>Brk g</th><th>Starts</th></tr>`;
+  h += L.rows.map(r => `<tr class="lap ${r.best?'best':''} ${r.long?'long':''}" data-t="${r.start}"><td>${r.lap}</td><td class="l">${r.driver}</td><td>${r.time}</td><td>${r.best?'':'+'+r.gap.toFixed(2)}</td>${r.sectors.map(s=>`<td>${s}</td>`).join('')}<td>${r.lat_g}</td><td>${r.brk_g}</td><td>${r.start_txt}${r.long?' ⏸':''}</td></tr>`).join('');
+  t.innerHTML = h;
+  $$('#laptable tr.lap').forEach(tr => tr.onclick = () => setT(+tr.dataset.t + 2));
+  let s = `<b>${L.rows.length} laps</b> · best ${L.best}` + (L.theo ? ` · theoretical ${L.theo}` : '');
+  L.drivers.forEach(d => s += `<span class="pill">${d.name}: ${d.laps} laps, best ${d.best}, ${d.miles} mi</span>`);
+  sum.innerHTML = s;
+}
+
+// ---------- timeline / preview
+function setT(t) { T = Math.max(0, Math.min(ST ? ST.total : 0, t)); $('#slider').value = T; $('#tcur').textContent = fmtClock(T); $('#tchap').textContent = chapTime(T); loadFrame(); }
+$('#slider').oninput = () => { T = +$('#slider').value; $('#tcur').textContent = fmtClock(T); $('#tchap').textContent = chapTime(T); loadFrame(); };
+$$('.nudge button').forEach(b => b.onclick = () => setT(T + +b.dataset.n));
+$('#showov').onchange = () => loadFrame();
+let frameSeq = 0;
+function loadFrame() {
+  if (!ST || !ST.loaded) return;
+  clearTimeout(frameTimer);
+  frameTimer = setTimeout(async () => {
+    const seq = ++frameSeq; $('#pvbusy').style.display = 'block';
+    const url = `/api/frame?t=${T.toFixed(2)}&w=1280&overlay=${$('#showov').checked?1:0}&_=${Date.now()}`;
+    try { const r = await fetch(url); if (!r.ok) throw new Error((await r.json()).error); const b = await r.blob();
+      if (seq === frameSeq) $('#preview').src = URL.createObjectURL(b); } catch (e) { setStatus('Frame: ' + e.message, true); }
+    if (seq === frameSeq) $('#pvbusy').style.display = 'none';
+  }, 250);
+}
+document.addEventListener('keydown', e => { if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+  if (e.key === 'ArrowLeft') setT(T - (e.shiftKey ? 10 : 1)); if (e.key === 'ArrowRight') setT(T + (e.shiftKey ? 10 : 1)); });
+
+// ---------- render
+$('#startgreen').onclick = () => { const g = ST.settings.green; if (!g) return setStatus('Set the green flag first.', true);
+  // green is chapter@time or plain; ask the server-side parse via settings roundtrip: approximate client-side
+  const t = parseTimeClient(g); pushSettings({start: chapTime(Math.max(0, t - 20))}, false); };
+$('#starthere').onclick = () => pushSettings({start: chapTime(T)}, false);
+$('#test60').onclick = () => pushSettings({start: chapTime(T), duration: '60', output: 'test60.mp4'}, false);
+function parseTimeClient(s) { let base = 0; if (s.includes('@')) { const [c, rest] = s.split('@'); base = ST.chapters[+c-1].start; s = rest; }
+  return base + s.split(':').reduce((a, p) => a * 60 + parseFloat(p), 0); }
+$('#render').onclick = async () => { try { await api('/api/render/start', {}); $('#rlog').textContent = ''; startRenderPoll(); } catch (e) { setStatus(e.message, true); } };
+$('#cancel').onclick = () => api('/api/render/cancel', {});
+function startRenderPoll() { clearInterval(renderTimer); renderTimer = setInterval(pollRender, 1000); pollRender(); }
+async function pollRender() {
+  const r = await api('/api/render/status');
+  $('#render').disabled = r.running || !(ST && ST.loaded); $('#cancel').disabled = !r.running;
+  $('#rline').textContent = r.line || ''; $('#rlog').textContent = (r.log || []).slice(-40).join('\n');
+  const m = /([\d.]+)%/.exec(r.line || ''); if (m) $('#prog').value = +m[1];
+  if (r.done) { clearInterval(renderTimer); renderTimer = null; $('#prog').value = r.rc === 0 ? 100 : $('#prog').value;
+    setStatus(r.rc === 0 ? `Done: ${r.output}` : `Render failed (exit ${r.rc}) – see log`, r.rc !== 0); }
+}
+
+// ---------- boot
+refreshState().catch(()=>{});
+</script>
+</body>
+</html>
