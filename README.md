@@ -2,7 +2,8 @@
 
 Turns GoPro footage of a track session into a video with a lap timer, sector times, speedometer, G-meter, track map and more, using only the GPS and accelerometer data the camera already records. No external logger needed.
 
-![preview](preview_v3.png)
+<img width="1397" height="791" alt="image" src="https://github.com/user-attachments/assets/a3613484-daee-47b6-9d30-baa59028ff2e" />
+
 
 Tested with a GoPro Hero 11 Black (GPS on) at Mid-Ohio, on Windows 10/11 with NVIDIA cards and FFmpeg 7-9, and with GoPro's own Hero 5-8 sample files. Other GPS-equipped GoPros (Hero 5 through 11, Max) record the same telemetry and should work; the Hero 12 and 13 have no GPS. Python 3.8+.
 
